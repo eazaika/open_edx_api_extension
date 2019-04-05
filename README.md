@@ -4,7 +4,8 @@ API extension for Open edX
 
 Installation:
 ```bash
-pip install -e git+https://github.com/raccoongang/open_edx_api_extension.git#egg=open_edx_api_extension
+sudo -u edxapp /edx/bin/pip.edxapp install -e git+https://github.com/eazaika/open_edx_api_extension.git@hawthorn#egg=open_edx_api_extension
+sudo -u edxapp /edx/bin/pip.edxapp install venvs/edxapp/src/open-edx-api-extension/
 ```
 
 Add in file lms/envs/common.py
