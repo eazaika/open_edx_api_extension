@@ -72,6 +72,9 @@ class CourseWithExamsSerializer(CourseSerializer):
             if attribute is None:
                 ret[field.field_name] = None
             else:
-                ret[field.field_name] = field.to_representation(attribute)
+                if field.field_name != 'media' and field.field_name != 'hidden':
+                    ret[field.field_name] = field.to_representation(attribute)
+
+        ret['org'] = 'edX'
 
         return ret

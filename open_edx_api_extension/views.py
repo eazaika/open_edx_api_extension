@@ -105,8 +105,8 @@ class CourseListMixin(object):
                        proctoring_system in course.available_proctoring_services.split(','))
 
         # Ensure only course descriptors are returned.
-        results = (course for course in results if
-                   course.scope_ids.block_type == 'course')
+#        results = (course for course in results if
+#                   course.scope_ids.block_type == 'course')
 
 
         # Sort the results in a predictable manner.
