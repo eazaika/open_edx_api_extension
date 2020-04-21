@@ -6,8 +6,6 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.db import transaction
 from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import ensure_csrf_cookie
-from django.http import JsonResponse
 
 from rest_framework.generics import RetrieveAPIView, ListAPIView
 from rest_framework.response import Response
@@ -18,8 +16,6 @@ from bulk_email.models import Optout
 
 from openedx.core.djangoapps.cors_csrf.decorators import ensure_csrf_cookie_cross_domain
 from course_modes.models import CourseMode
-from course_structure_api.v0 import serializers
-from course_structure_api.v0.views import CourseViewMixin
 from courseware import courses
 
 from django_comment_common.models import Role, FORUM_ROLE_STUDENT
@@ -57,10 +53,7 @@ from django.contrib.auth import get_user_model
 
 from track import views as track_views
 
-from open_edx_api_extension.serializers import CourseWithExamsSerializer
-
-from .tasks import submit_calculate_grades_csv_users
-from .utils import get_custom_grade_config
+from open_edx_api_extension.serializers import CourseSerializer, CourseWithExamsSerializer
 
 log = logging.getLogger(__name__)
 VERIFIED = 'verified'
@@ -75,98 +68,13 @@ except ImportError:
     _get_exam_attempt = None
     update_attempt_status = None
 from .data import get_course_enrollments, get_user_proctored_exams, get_course_calendar
-from .models import CourseUserResultCache
-from .utils import student_grades, EdxPlpCohortName
-
-
-class CourseUserResult(CourseViewMixin, RetrieveAPIView):
-    """
-    **Use Case**
-
-        Get result user for a specific course.
-
-    **Example Request**:
-
-        GET /api/extended/courses/{course_id}/{username}/
-
-    **Response Values**
-
-        * id: The unique identifier for the user.
-
-        * username: The username of the user.
-
-        * email: The email of the user.
-
-        * realname: The realname of the user.
-
-        * grade_summary: Contains student grade details:
-
-            * section_breakdown: This is a list of dictionaries which provide details on sections that were graded:
-                * category: A string identifying the category.
-                * percent: A float percentage for the section.
-                * detail: A string explanation of the score. E.g. "Homework 1 - Ohms Law - 83% (5/6)".
-                * label: A short string identifying the section. E.g. "HW  3".
-
-            * grade:  A final letter grade.
-
-            * totaled_scores: totaled scores, which is passed to the grader.
-
-            * percent: Contains a float value, which is the final percentage score for the student.
-
-            * grade_breakdown: This is a list of dictionaries which provide details on the contributions
-                               of the final percentage grade. This is a higher level breakdown, for when the grade is
-                               constructed of a few very large sections (such as Homeworks, Labs, a Midterm, and a Final):
-                * category: A string identifying the category.
-                * percent: A float percentage in the breakdown. All percents should add up to the final percentage.
-                * detail: A string explanation of this breakdown. E.g. "Homework - 10% of a possible 15%".
-    """
-
-    @CourseViewMixin.course_check
-    def get(self, request, **kwargs):
-        username = self.kwargs.get('username')
-        enrolled_students = CourseEnrollment.objects.users_enrolled_in(
-            self.course_key).filter(username=username)
-
-        if not enrolled_students:
-            return Response({
-                "error_description": "User is not enrolled for the course",
-                "error": "invalid_request"
-            })
-
-        course = None
-        grade_summaries = []
-        for student in enrolled_students:
-            # use cache if have any
-            saved_info = CourseUserResultCache.get_grade_summary(student, self.course_key)
-            if saved_info is not None:
-                grade_summaries.append(saved_info)
-                continue
-
-            # otherwise get grades elsewhere and save them to cache
-            if course is None:
-                course = courses.get_course(self.course_key)
-            new_info = student_grades(student, course)
-            CourseUserResultCache.save_grade_summary(student, self.course_key, new_info)
-            grade_summaries.append(new_info)
-
-        student_info = [
-            {
-                'username': student.username,
-                'id': student.id,
-                'email': student.email,
-                'grade_summary': grade_summaries[num],
-                'realname': student.profile.name,
-            }
-            for num, student in enumerate(enrolled_students)
-            ]
-        return Response(student_info)
 
 
 class CourseListMixin(object):
     lookup_field = 'course_id'
     paginate_by = 10000
     paginate_by_param = 'page_size'
-    serializer_class = serializers.CourseSerializer
+    serializer_class = CourseSerializer
     # Using EDX_API_KEY for access to this api
     authentication_classes = (SessionAuthenticationAllowInactiveUser,
                               OAuth2AuthenticationAllowInactiveUser)
@@ -190,14 +98,14 @@ class CourseListMixin(object):
 
         proctoring_system = self.request.query_params.get('proctoring_system')
         if proctoring_system:
-            if 'ITMO' in proctoring_system:
-                proctoring_system = 'ITMO'
+            if 'ITMOproctor' in proctoring_system:
+                proctoring_system = 'ITMOproctor'
             results = (course for course in results if
                        proctoring_system in course.available_proctoring_services.split(','))
 
         # Ensure only course descriptors are returned.
-        results = (course for course in results if
-                   course.scope_ids.block_type == 'course')
+#        results = (course for course in results if
+#                   course.scope_ids.block_type == 'course')
 
 
         # Sort the results in a predictable manner.
@@ -207,7 +115,7 @@ class CourseListMixin(object):
 class CourseList(CourseListMixin, ListAPIView):
     """
     Inspired from:
-    lms.djangoapps.course_structure_api.v0.views.CourseList
+    course_api.views.CourseList
 
     **Use Case**
         Get a paginated list of courses in the whole edX Platform.
@@ -235,7 +143,7 @@ class CourseList(CourseListMixin, ListAPIView):
             * end: The course end date. If course end date is not specified, the
               value is null.
     """
-    serializer_class = serializers.CourseSerializer
+    serializer_class = CourseSerializer
 
 
 class CourseListWithExams(CourseListMixin, ListAPIView):
@@ -531,7 +439,7 @@ class UpdateVerifiedCohort(APIView, ApiKeyPermissionMixIn):
 
             * username: The unique user id in plp and edx
 
-            * action: add - add user into verified cohort, delete - remove user from verified cohort 
+            * action: add - add user into verified cohort, delete - remove user from verified cohort
 
         **Response Values**
 
@@ -868,210 +776,6 @@ class Credentials(APIView, ApiKeyPermissionMixIn):
                 for role in roles:
                     creds['discussions'][course_id.html_id()][role.name] = [u.username for u in role.users.all()]
         return Response(data=creds)
-
-
-# TODO: this one is currently deprecated, should be removed later
-@transaction.non_atomic_requests
-@ensure_csrf_cookie
-@require_level('staff')
-def view_grades_csv_for_users(request, course_id):
-    """
-    Example: GET http://edx.local.se:8000/api/extended/calculate_grades_csv/course-v1:test_o+test_n+test_r?usernames=["test","test1"]
-    """
-    course_key = CourseKey.from_string(course_id)
-    try:
-        usernames_str = request.GET.get("usernames")
-        usernames = json.loads(usernames_str)
-    except AttributeError as e:
-        logging.error("API extensions, user grades error: {}".format(str(e)))
-        return JsonResponse({"status": "An error occured: failed to get usernames from request"})
-    try:
-        submit_calculate_grades_csv_users(request, course_key, usernames)
-        success_status = ("The grade report is being created."
-                           " To view the status of the report, see Pending Tasks below.")
-        return JsonResponse({"status": success_status})
-    except AlreadyRunningError:
-        already_running_status = ("The grade report is currently being created."
-                                   " To view the status of the report, see Pending Tasks below."
-                                   " You will be able to download the report when it is complete.")
-        return JsonResponse({"status": already_running_status})
-
-
-# TODO: this one is currently deprecated, should be removed later
-class UsersGradeReports(APIView, ApiKeyPermissionMixIn):
-    """
-        **Use Cases**
-
-            Used to get reports urls for given course_id and given usenames
-
-        **Example Requests**:
-
-            GET /api/extended/users_grade_reports{
-                "course_ids": ["course-v1:edX+DemoX+Demo_Course", ...]
-                "usernames": ["test"]
-            }
-
-        **Response Values**
-
-            {
-                "course_id_1": {"reports":{
-                    "username_1_1":[url_report1.csv, ..., url_reportn.csv],
-                    "broken_username":"Error: user not found",
-                     ...
-                    "username_1_n": {...}
-                    }
-                }
-                "broken_course_id":{"error":"No course for this course_id"}
-                ...
-                "course_id_m": {"reports":{...}}
-            }
-            OR
-            {"error": "<Some fatal error>"}
-
-    """
-
-    #authentication_classes = OAuth2AuthenticationAllowInactiveUser,
-    #permission_classes = ApiKeyHeaderPermissionIsAuthenticated,
-
-    def get(self, request):
-        #collect data
-        data_get = dict(request.GET.iterlists())
-        def unjson(s):
-            try:
-                return json.loads(s)
-            except:
-                return s
-
-        try:
-            usernames = (data_get.get("usernames"))
-            usernames = unjson(usernames)
-            if isinstance(usernames,unicode):
-                usernames = [usernames]
-        except Exception as e:
-            logging.error("API got incorrect usernames: {}".format(str(e)))
-            return Response(data={"error": "Given usenames are incorrect"})
-
-        try:
-            course_ids = (data_get.get("course_ids"))
-            course_ids = unjson(course_ids)
-            if isinstance(course_ids, unicode):
-                course_ids = [course_ids]
-        except Exception as e:
-            logging.error("API got incorrect course_ids: {}".format(str(e)))
-            return Response(data={"error": "Given usenames incorrect; Exception:{}".format(str(e))})
-
-        #check existance of users from usernames
-        users = User.objects.filter(username__in=usernames)
-        users_dict = dict((u.username, u.id) for u in users)
-        if not users_dict:
-            return Response(data={"error": "No user for any of given usernames"})
-        id_user_map = dict((users_dict[x], x) for x in users_dict)
-        users_not_found = [uname for uname in usernames if uname not in users_dict]
-        if users_not_found:
-            msg = "Requested users not found: {}".format(",".join(users_not_found))
-            logging.error(msg)
-        users_dict.update({(uname, None) for uname in users_not_found})
-
-        #check existance of courses from course_ids
-        course_ids_dict = {}
-        for cid in course_ids:
-            try:
-                ckey = CourseKey.from_string(cid)
-                course_ids_dict[cid] = ckey
-            except:
-                logging.error("No course for course_id given to API: {}".format(cid))
-                course_ids_dict[cid] = None
-                continue
-        if not [cid for cid in course_ids if course_ids_dict[cid]]:
-            return Response(data={"error": "No course for any of given course_ids"})
-
-        answer_data = dict((cid, {}) for cid in course_ids_dict)
-        report_store = ReportStore.from_config(config_name=get_custom_grade_config())
-        for cid in course_ids_dict:
-            if not course_ids_dict[cid]:
-                answer_data[cid] = {"error":"No course for this course_id"}
-                continue
-            file_urls = report_store.links_for(course_ids_dict[cid])
-            current_reports = {}
-            for uname in users_dict:
-                if users_dict[uname]:
-                    current_reports[uname] = []
-                else:
-                    current_reports[uname] = "Error: user not found"
-
-            for name, url in file_urls:
-                name_parts = name.split("_")
-                url_id = int(name_parts[name_parts.index('id') + 1])
-                url_uname = id_user_map.get(url_id, None) # None means this user wasn't requested
-                if url_uname:
-                    current_reports[url_uname].append(url)
-            answer_data[cid] = {"reports":current_reports}
-        return Response(data=answer_data)
-
-
-class CalculateUsersGradeReport(APIView):
-    """
-        **Use Cases**
-
-            Allows to request grading list calculation for course it against
-            listed users. When task finished, it notifies client on given
-            callback url about the result.
-            Requires apllication/json content-type
-
-
-        **Example Requests**:
-
-            POST /api/extended/calculate_grade_reports{
-                "course_id": "course-v1:edX+DemoX+Demo_Course"
-                "users": ["test", "test2"],
-                "staff_username": "instructor_username",
-                "callback_url": "plp.tp.ru/grade_handle/"
-            }
-
-        **Response Values**
-
-            200: if task is taken in processing
-
-            400: {"error": "<Error description>"}if error occurred
-
-    """
-    authentication_classes = OAuth2AuthenticationAllowInactiveUser, SessionAuthenticationAllowInactiveUser
-    permission_classes = ApiKeyHeaderPermissionIsAuthenticated,
-
-    @classmethod
-    def as_view(cls, **initkwargs):
-        """Run as_view() non_atomic"""
-        return transaction.non_atomic_requests()(super(cls, cls).as_view(**initkwargs))
-
-    def post(self, request):
-        staff_username = request.data.get('staff_username')
-        try:
-            request.user = User.objects.get(username=staff_username)
-        except User.DoesNotExist:
-            return JsonResponse({"error": "Bad staff username:'{}'".format(staff_username)}, status=status.HTTP_400_BAD_REQUEST)
-        usernames = request.data.get('users', None)
-        if usernames is None:
-            return JsonResponse({"error": "No users in request"}, status=status.HTTP_400_BAD_REQUEST)
-        callback_url = request.data.get('callback_url', None)
-        if not callback_url:
-            return JsonResponse({"error": "No callback_url in request"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # TODO: better make it part of url scheme
-        course_id = request.data.get('course_id')
-        if not course_id:
-            return JsonResponse({"error": "No course_id in request"}, status=status.HTTP_400_BAD_REQUEST)
-
-        course_key = CourseKey.from_string(course_id)
-        if not modulestore().has_course(course_key):
-            return JsonResponse(
-                {"error": "course with id {} not found".format(course_id)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        try:
-            submit_calculate_grades_csv_users(request, course_key, usernames, callback_url)
-            return JsonResponse({"status": "Started"})
-        except AlreadyRunningError:
-            return JsonResponse({"status": "AlreadyRunning"})
 
 
 def check_proctored_exams_attempt_turn_on(method):
@@ -1523,6 +1227,7 @@ class CourseCohortsWithStudents(CohortValidationMixin, APIView):
         if errors:
             return Response(data={"failed": errors}, status=status.HTTP_400_BAD_REQUEST)
         return Response()
+
 
 class CourseStructure(APIView):
     """

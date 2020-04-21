@@ -1,12 +1,13 @@
 from collections import OrderedDict
 from rest_framework import serializers
+import re
 try:
     from rest_framework.fields import SkipField
 except ImportError:
     SkipField = Exception
 from edx_proctoring.api import get_all_exams_for_course
 
-from course_structure_api.v0.serializers import CourseSerializer
+from openedx.core.lib.courses import course_image_url
 
 
 class ExamSerializerField(serializers.Field):
@@ -28,6 +29,34 @@ class ExamSerializerField(serializers.Field):
             if exam['is_proctored'] == self.is_proctored:
                 result.append(exam)
         return result
+
+class CourseSerializer(serializers.Serializer):
+    """ Serializer for Courses """
+    id = serializers.CharField()  # pylint: disable=invalid-name
+    name = serializers.CharField(source='display_name')
+    category = serializers.CharField()
+    org = serializers.SerializerMethodField()
+    run = serializers.SerializerMethodField()
+    course = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+
+    def get_org(self, course):
+        """ Gets the course org """
+        return course.id.org
+
+    def get_run(self, course):
+        """ Gets the course run """
+        return course.id.run
+
+    def get_course(self, course):
+        """ Gets the course """
+        return course.id.course
+
+    def get_image_url(self, course):
+        """ Get the course image URL """
+        return course_image_url(course)
 
 
 class CourseWithExamsSerializer(CourseSerializer):
@@ -72,6 +101,11 @@ class CourseWithExamsSerializer(CourseSerializer):
             if attribute is None:
                 ret[field.field_name] = None
             else:
-                ret[field.field_name] = field.to_representation(attribute)
+                if field.field_name != 'media' and field.field_name != 'hidden':
+                    ret[field.field_name] = field.to_representation(attribute)
+
+        ret['org'] = 'LETIteach'
+        ret['course_title'] = instance.display_name
+        ret['course_session'] = ret['run']
 
         return ret

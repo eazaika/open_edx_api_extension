@@ -43,8 +43,8 @@ def get_user_proctored_exams(username, request):
         system = request.GET.get('system')
     if system:
         system = system.strip()
-        if 'ITMO' in system:
-            system = 'ITMO'
+        if 'ITMOproctor' in system:
+            system = 'ITMOproctor'
 
     result = {}
 
@@ -66,7 +66,8 @@ def get_user_proctored_exams(username, request):
             name__startswith=VERIFIED
         )
 
-        if course_id not in course_ids and cohorts.exists():
+        #if course_id not in course_ids and cohorts.exists():
+        if course_id not in course_ids:
             course_ids.append(course_id)
 
     courses = []
@@ -82,8 +83,8 @@ def get_user_proctored_exams(username, request):
             'id': course_id,
             'name': course.display_name,
             'uri': request.build_absolute_uri(
-                reverse('course_structure_api:v0:detail',
-                        kwargs={'course_id': course_id})),
+                reverse('course-detail',
+                        kwargs={'course_key_string': course_id})),
             'image_url': course.image_url,
             'start': course.start,
             'end': course.end,
@@ -120,6 +121,7 @@ def get_user_proctored_exams(username, request):
                 result[course_id]['exams'].append(exam)
         result = {key: value for key, value in result.items() if
                   len(value['exams']) > 0}
+
     return result
 
 
