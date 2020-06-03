@@ -11,9 +11,9 @@ from time import time
 from django.conf import settings
 from django.contrib.auth.models import User
 
-from certificates.models import CertificateWhitelist, certificate_info_for_user
-from lms.djangoapps.courseware.courses import get_course_by_id
-from lms.djangoapps.grades.new.course_grade_factory import CourseGradeFactory
+from lms.djangoapps.certificates.models import CertificateWhitelist, certificate_info_for_user
+from courseware.courses import get_course_by_id
+from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
 from lms.djangoapps.instructor_task.api_helper import submit_task
 from lms.djangoapps.instructor_task.models import ReportStore
 from lms.djangoapps.instructor_task.tasks_base import BaseInstructorTask

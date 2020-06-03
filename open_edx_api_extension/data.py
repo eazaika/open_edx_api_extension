@@ -6,7 +6,7 @@ from django.core.urlresolvers import reverse
 from django.conf import settings
 from edx_proctoring.api import get_all_exams_for_course
 from enrollment.serializers import CourseEnrollmentSerializer
-from lms.djangoapps.courseware.access import has_access
+from courseware.access import has_access
 from openedx.core.djangoapps.course_groups.models import CourseUserGroup
 from opaque_keys.edx.keys import CourseKey
 from student.models import CourseEnrollment

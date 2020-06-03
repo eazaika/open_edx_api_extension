@@ -6,7 +6,7 @@ import requests
 from django.conf import settings
 from django.http.response import JsonResponse
 from django.utils.translation import ugettext as _
-from lms.djangoapps.grades.new.course_grade_factory import CourseGradeFactory
+from lms.djangoapps.grades.course_grade_factory import CourseGradeFactory
 
 
 # TODO: Update using PlpApiClient
